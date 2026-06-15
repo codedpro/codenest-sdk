@@ -3,6 +3,9 @@
 Client SDK for the **IT Master** content engine. Use this in any standalone
 Next.js site instead of re-implementing the Pull API + rendering helpers.
 
+> **Full integration guide (all stacks + both models):**
+> [docs/integrations/custom-website-integration.md](../docs/integrations/custom-website-integration.md)
+
 > The 9 Fabric‑Commerce tenants do **not** use this — they receive optimizations
 > via Fabric's provider endpoints. This SDK is for **independent** sites that pull
 > and display IT Master content (e.g. itmaster.uk, ai.ukvision.co.uk).
