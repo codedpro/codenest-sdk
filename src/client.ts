@@ -1,4 +1,4 @@
-import type { PublishedArticle, Redirect } from "./types.js";
+import type { PublishedArticle, Redirect, SiteConfig } from "./types.js";
 
 /**
  * Read-only client for the IT Master Pull API (`/v1/publish/{site}/…`). A site is
@@ -29,17 +29,37 @@ export interface ListOptions {
   since?: string;
 }
 
+/** One page of the incremental article feed (follows `next_since` cursor). */
+export interface ArticlePage {
+  articles: PublishedArticle[];
+  /** Cursor to pass as `since` next poll, or null when caught up. */
+  next_since: string | null;
+}
+
 export interface ItmasterClient {
   /** Whether a pull key is configured (else every call returns empty/null). */
   readonly configured: boolean;
   /** Live articles, newest first; tombstones filtered out unless requested. */
   listArticles(opts?: ListOptions): Promise<PublishedArticle[]>;
+  /**
+   * One page of the raw incremental feed (unsorted, tombstones included) plus the
+   * `next_since` cursor — for mirrors that follow the engine's change feed.
+   */
+  listArticlesPage(opts?: ListOptions): Promise<ArticlePage>;
   /** One article by slug, or null if missing / taken down. */
   getArticle(slug: string): Promise<PublishedArticle | null>;
-  /** Derived feeds (raw text): sitemap.xml, rss.xml, llms.txt. */
+  /** Derived feeds (raw text): sitemap.xml, rss.xml, llms.txt, robots.txt. */
   sitemap(): Promise<string | null>;
   rss(): Promise<string | null>;
   llmsTxt(): Promise<string | null>;
+  /** Engine-generated robots.txt (managed/custom per site_config). */
+  robots(): Promise<string | null>;
+  /** The site's IndexNow key (serve at /<key>.txt). */
+  indexnowKey(): Promise<string | null>;
+  /** Dashboard-controlled site config (locale, robots, head tags, meta, sitemap). */
+  config(): Promise<SiteConfig | null>;
+  /** Topical clusters: { cluster: { pillar: slug|null, spokes: slug[] } }. */
+  clusters(): Promise<Record<string, { pillar: string | null; spokes: string[] }> | null>;
   /** Managed redirects for the site. */
   redirects(): Promise<Redirect[]>;
   /** Escape hatch: any Pull-API subpath as JSON. */
@@ -88,15 +108,22 @@ export function createClient(config: ItmasterClientConfig): ItmasterClient {
     }
   }
 
-  async function listArticles(opts: ListOptions = {}): Promise<PublishedArticle[]> {
+  async function listArticlesPage(opts: ListOptions = {}): Promise<ArticlePage> {
     const params = new URLSearchParams();
     params.set("limit", String(opts.limit ?? 100));
     if (opts.since) params.set("since", opts.since);
-    const data = await raw<{ articles?: PublishedArticle[] }>(`/articles?${params.toString()}`);
-    let articles = data?.articles ?? [];
-    if (!opts.includeTombstones) articles = articles.filter((a) => a.status !== "unpublished");
-    articles.sort((a, b) => (b.published_at ?? "").localeCompare(a.published_at ?? ""));
-    return articles;
+    const data = await raw<{ articles?: PublishedArticle[]; next_since?: string | null }>(
+      `/articles?${params.toString()}`,
+    );
+    return { articles: data?.articles ?? [], next_since: data?.next_since ?? null };
+  }
+
+  async function listArticles(opts: ListOptions = {}): Promise<PublishedArticle[]> {
+    const { articles } = await listArticlesPage(opts);
+    let out = articles;
+    if (!opts.includeTombstones) out = out.filter((a) => a.status !== "unpublished");
+    out.sort((a, b) => (b.published_at ?? "").localeCompare(a.published_at ?? ""));
+    return out;
   }
 
   async function getArticle(slug: string): Promise<PublishedArticle | null> {
@@ -108,12 +135,19 @@ export function createClient(config: ItmasterClientConfig): ItmasterClient {
   return {
     configured,
     listArticles,
+    listArticlesPage,
     getArticle,
     sitemap: () => rawText("/sitemap.xml"),
     rss: () => rawText("/rss.xml"),
     llmsTxt: () => rawText("/llms.txt"),
+    robots: () => rawText("/robots.txt"),
+    indexnowKey: () => rawText("/indexnow-key"),
+    config: () => raw<SiteConfig>("/config"),
+    clusters: () => raw<Record<string, { pillar: string | null; spokes: string[] }>>("/clusters"),
     async redirects() {
-      const data = await raw<{ redirects?: Redirect[] }>("/redirects");
+      // Tolerate both shapes: { redirects } OR a bare array.
+      const data = await raw<{ redirects?: Redirect[] } | Redirect[]>("/redirects");
+      if (Array.isArray(data)) return data;
       return data?.redirects ?? [];
     },
     raw,

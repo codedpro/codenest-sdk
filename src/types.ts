@@ -43,6 +43,9 @@ export interface PublishedArticle {
   excerpt?: string;
   body_html: string;
   hero_image?: HeroImage | string | null;
+  /** Designed cover/OG thumbnail (catchy hook + brand) — use for social/Discover
+   *  cards and listing tiles. The clean `hero_image` still leads the article body. */
+  cover_image?: HeroImage | null;
   images?: HeroImage[];
   faq?: FaqItem[];
   jsonld?: unknown;
@@ -74,6 +77,110 @@ export interface Redirect {
   from: string;
   to: string;
   status?: number;
+}
+
+/**
+ * Dashboard-controlled site config the engine resolves and the SDK pulls from
+ * `/config`. An empty config behaves as before (en-GB / index,follow / sane
+ * default robots). Mirrors the engine's ResolvedSiteConfig.
+ */
+export interface SiteConfig {
+  /** BCP-47 locale, e.g. "en-GB" (drives hreflang / og:locale). */
+  locale: string;
+  /** Derived language subtag, e.g. "en" (read-only, from /config). */
+  locale_lang?: string;
+  robots: {
+    mode: "managed" | "custom";
+    /** Disallowed paths, e.g. ["/admin","/cart"]. */
+    disallow: string[];
+    allow: string[];
+    /** One toggle for GPTBot/ClaudeBot/PerplexityBot/Google-Extended/CCBot/… */
+    ai_crawlers: "allow" | "block";
+    /** Crawl-delay directive, 0..60. */
+    crawl_delay: number;
+    /** Raw robots.txt body when mode==="custom". */
+    custom: string;
+    /** Extra lines appended in managed mode. */
+    extra: string;
+  };
+  head: {
+    verification: { google: string; bing: string; pinterest: string; yandex: string };
+    analytics: {
+      ga4: string;
+      gtm: string;
+      plausible_domain: string;
+      clarity: string;
+      meta_pixel: string;
+    };
+    /** Raw <meta>/<link>/<script> strings dropped verbatim into <head>. */
+    extra_tags: string[];
+  };
+  meta: {
+    /** Title template, must contain %s. */
+    title_template: string;
+    /** e.g. " | CCTV Line". */
+    title_suffix: string;
+    default_og_image: string;
+    twitter_handle: string;
+    favicon: string;
+  };
+  sitemap: {
+    changefreq: "always" | "hourly" | "daily" | "weekly" | "monthly" | "yearly" | "never";
+    /** 0..1. */
+    priority: number;
+    /** Path prefixes dropped from sitemap.xml. */
+    exclude: string[];
+    /** Derived sitemap URL (read-only, from /config). */
+    url?: string;
+  };
+}
+
+// ── Write-back provider contract (CMS-style sites the engine edits directly) ──
+
+/** One page in a site's inventory, returned by the provider `snapshot` handler. */
+export interface SnapshotPage {
+  /** Stable identifier the engine addresses the page by (often the slug). */
+  slug: string;
+  /** Public URL of the page. */
+  url?: string;
+  /** Route path, e.g. "/blog/foo". */
+  path?: string;
+  title?: string;
+  meta_description?: string;
+  /** Last-modified ISO timestamp, so the engine can prioritise stale pages. */
+  updated_at?: string;
+  /** Page kind hint, e.g. "post" | "page" | "product". */
+  type?: string;
+  /** Free-form per-page metadata the site wants the engine to see. */
+  [extra: string]: unknown;
+}
+
+/** SEO-only patch: head/metadata fields the engine wants written, no prose. */
+export interface SeoPatch {
+  title?: string;
+  meta_description?: string;
+  canonical?: string;
+  og?: { title?: string; description?: string; image?: string; type?: string };
+  twitter?: { card?: string; title?: string; description?: string; image?: string };
+  /** JSON-LD graph to inject (replaces existing engine-managed JSON-LD). */
+  jsonld?: unknown;
+}
+
+/** A single prose block the engine rewrote, addressed by a stable anchor. */
+export interface ContentBlock {
+  /** Stable id/selector the site maps to a DOM block (heading id, data-attr…). */
+  anchor: string;
+  /** Replacement HTML for that block. */
+  html?: string;
+  /** Optional plain-text variant when the site stores markdown/prose. */
+  text?: string;
+}
+
+/** Content patch: one or more prose blocks the engine rewrote. */
+export interface ContentPatch {
+  blocks: ContentBlock[];
+  /** Reason/summary of the rewrite (audit trail). */
+  note?: string;
 }
 
 /** Resolve a hero image to {url, alt}, tolerating string | object | images[]. */

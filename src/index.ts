@@ -8,14 +8,19 @@
  * Next.js helpers (metadata / JSON-LD / webhook) live in "@itmaster/sdk/next".
  */
 export { createClient } from "./client.js";
-export type { ItmasterClient, ItmasterClientConfig, ListOptions } from "./client.js";
+export type { ArticlePage, ItmasterClient, ItmasterClientConfig, ListOptions } from "./client.js";
 export {
   heroOf,
   type Author,
+  type ContentBlock,
+  type ContentPatch,
   type FaqItem,
   type HeroImage,
   type PublishedArticle,
   type PublishedPayload,
   type Redirect,
+  type SeoPatch,
+  type SiteConfig,
+  type SnapshotPage,
   type TocItem,
 } from "./types.js";

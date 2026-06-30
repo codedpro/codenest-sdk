@@ -1,10 +1,51 @@
 {
   "name": "@itmaster/sdk",
-  "version": "0.1.0",
-  "description": "Client SDK for the IT Master content engine — pull published articles + Next.js helpers. Use this instead of re-implementing the Pull API in every site.",
+  "version": "0.1.2",
+  "description": "Official client SDK for the IT Master AI content engine — pull SEO-optimized articles into any Next.js site with turnkey sitemap, RSS, llms.txt, JSON-LD, IndexNow, metadata and webhook helpers.",
   "type": "module",
-  "license": "UNLICENSED",
-  "files": ["dist"],
+  "license": "MIT",
+  "author": "IT Master",
+  "homepage": "https://github.com/codedpro/itmaster-sdk#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/codedpro/itmaster-sdk.git"
+  },
+  "bugs": {
+    "url": "https://github.com/codedpro/itmaster-sdk/issues"
+  },
+  "keywords": [
+    "itmaster",
+    "seo",
+    "ai-content",
+    "content-engine",
+    "headless-cms",
+    "nextjs",
+    "next",
+    "app-router",
+    "react-server-components",
+    "blog",
+    "sitemap",
+    "rss",
+    "llms-txt",
+    "json-ld",
+    "structured-data",
+    "rich-results",
+    "indexnow",
+    "metadata",
+    "content-api",
+    "pull-api",
+    "publishing",
+    "webhooks",
+    "seo-automation"
+  ],
+  "sideEffects": false,
+  "engines": {
+    "node": ">=18"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -13,17 +54,27 @@
     "./next": {
       "types": "./dist/next.d.ts",
       "import": "./dist/next.js"
+    },
+    "./provider": {
+      "types": "./dist/provider.d.ts",
+      "import": "./dist/provider.js"
     }
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "prepare": "npm run build",
     "prepack": "npm run build"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "peerDependencies": {
     "next": ">=14"
   },
   "peerDependenciesMeta": {
-    "next": { "optional": true }
+    "next": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "typescript": "^5.6.0",
