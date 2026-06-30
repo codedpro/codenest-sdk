@@ -6,14 +6,18 @@
 import { heroOf, type PublishedArticle, type SiteConfig } from "./types.js";
 
 export interface MetadataLike {
-  title?: string;
+  // Mirrors Next's `Metadata["title"]` (string OR a template object OR null) so a
+  // real Next `Metadata` is assignable without a cast at the call site.
+  title?: string | { default?: string; template?: string | null; absolute?: string } | null;
   description?: string;
   alternates?: { canonical?: string };
   openGraph?: Record<string, unknown>;
   twitter?: Record<string, unknown>;
   keywords?: string[];
   icons?: { icon?: string };
-  verification?: Record<string, string>;
+  // `verification.other` is itself a name→token map (e.g. msvalidate.01,
+  // p:domain_verify), so values are `unknown`, matching Next's shape.
+  verification?: Record<string, unknown>;
   other?: Record<string, string>;
 }
 
@@ -380,13 +384,18 @@ export function applyMeta(base: MetadataLike, config: SiteConfig, pageTitle?: st
 
   if (meta.favicon) out.icons = { ...(base.icons ?? {}), icon: meta.favicon };
 
-  // Verification tokens (Next renders these into <head> for you).
+  // Verification tokens (Next renders these into <head> for you). Next exposes
+  // `google`/`yandex` directly; everything else (Bing, Pinterest, …) goes under
+  // `other` as a name→token map, which Next emits as `<meta name=… content=…>`.
   const v = config.head?.verification;
   if (v) {
-    const verification: Record<string, string> = { ...(base.verification ?? {}) };
+    const verification: Record<string, unknown> = { ...(base.verification ?? {}) };
+    const other: Record<string, unknown> = { ...((verification.other as Record<string, unknown>) ?? {}) };
     if (v.google) verification.google = v.google;
     if (v.yandex) verification.yandex = v.yandex;
-    if (v.bing) (verification as Record<string, string>).other = v.bing; // Next has no bing slot
+    if (v.bing) other["msvalidate.01"] = v.bing;
+    if (v.pinterest) other["p:domain_verify"] = v.pinterest;
+    if (Object.keys(other).length) verification.other = other;
     if (Object.keys(verification).length) out.verification = verification;
   }
 
