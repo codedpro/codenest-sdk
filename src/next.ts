@@ -165,15 +165,47 @@ export function createLlmsRoute(client: Pick<RouteClient, "llmsTxt">) {
     textResponse(await client.llmsTxt(), "text/plain; charset=utf-8");
 }
 
+/** Shared IndexNow key salt — MUST match the engine's tools/indexnow._derive_key. */
+const INDEXNOW_SALT = "itmaster-indexnow-v1";
+
 /**
- * GET handler returning the IndexNow key as text/plain. Map the route the engine
- * expects (`/<key>.txt`) — e.g. an `app/[key]/route.ts` that calls this, or a
- * rewrite. The body is exactly the key (IndexNow requires the file contents to
- * equal the key).
+ * Derive a site's IndexNow key deterministically, IDENTICAL to the engine
+ * (`sha256("itmaster-indexnow-v1:" + siteId)` hex, first 32 chars). Every consumer
+ * computes the same value the engine submits, so ownership verifies with ZERO
+ * coordination — no stored secret, no round-trip to the engine. Uses Web Crypto so
+ * it runs in Node and Edge alike.
  */
-export function createIndexNowKeyRoute(client: Pick<RouteClient, "indexnowKey">) {
-  return async (): Promise<Response> =>
-    textResponse(await client.indexnowKey(), "text/plain; charset=utf-8");
+export async function deriveIndexNowKey(siteId: string): Promise<string> {
+  const bytes = new TextEncoder().encode(`${INDEXNOW_SALT}:${siteId}`);
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("")
+    .slice(0, 32);
+}
+
+/**
+ * GET handler serving a site's IndexNow key at `/<key>.txt` (rewrite `/{32-hex}.txt`
+ * to it). Pass a static engine site id (single-tenant sites, e.g. the engine's own
+ * `itmaster.uk`) OR a resolver that returns the id per request (multi-tenant
+ * storefronts resolve it from the host). The key is DERIVED locally — no pull key,
+ * no engine round-trip — so this works uniformly on EVERY consumer, including the
+ * engine's own site. The body is exactly the key (IndexNow requires that).
+ */
+export function createIndexNowKeyRoute(
+  site: string | (() => string | null | Promise<string | null>),
+): () => Promise<Response> {
+  return async (): Promise<Response> => {
+    const siteId = typeof site === "function" ? await site() : site;
+    if (!siteId) return new Response("Not found", { status: 404 });
+    const key = await deriveIndexNowKey(siteId);
+    return new Response(key, {
+      headers: {
+        "content-type": "text/plain; charset=utf-8",
+        "cache-control": "public, max-age=86400",
+      },
+    });
+  };
 }
 
 /** Minimal shape of an inbound webhook request the handler reads. */
