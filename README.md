@@ -6,10 +6,13 @@
 [![Next.js](https://img.shields.io/badge/Next.js-%E2%89%A514-black.svg)](https://nextjs.org/)
 [![ESM](https://img.shields.io/badge/module-ESM-f7df1e.svg)](https://nodejs.org/api/esm.html)
 
-**Official client SDK for [IT Master](https://itmaster.uk), the AI SEO content engine.**
-Pull SEO-optimized, AI-generated articles into any standalone **Next.js** site —
-with turnkey **sitemap, RSS, `llms.txt`, JSON-LD, IndexNow, metadata and webhook**
-helpers — instead of re-implementing the Pull API + rendering layer in every site.
+**Official client SDK for [IT Master](https://itmaster.uk) — the AI SEO content engine.**
+IT Master writes, cross-model–validates and publishes expert articles that **rank on
+Google and get cited by AI search** (ChatGPT, Perplexity, AI Overviews). This SDK
+connects any **Next.js** site to it: pull those articles and serve turnkey
+**sitemap, RSS, `llms.txt`, JSON-LD, IndexNow, metadata and webhook** helpers — no
+re-implementing the Pull API or rendering layer per site. See
+[how it works](https://itmaster.uk/how-it-works) · [pricing](https://itmaster.uk/pricing).
 
 > The Fabric-Commerce tenants do **not** use this — they receive optimizations via
 > Fabric's provider endpoints. This SDK is for **independent** sites that pull and
