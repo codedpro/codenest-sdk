@@ -1,6 +1,6 @@
 {
   "name": "@itmaster/sdk",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Official client SDK for the IT Master AI content engine — pull SEO-optimized articles into any Next.js site with turnkey sitemap, RSS, llms.txt, JSON-LD, IndexNow, metadata and webhook helpers.",
   "type": "module",
   "license": "MIT",
@@ -77,7 +77,10 @@
     }
   },
   "devDependencies": {
-    "typescript": "^5.6.0",
-    "@types/node": "^20.0.0"
+    "@types/node": "^22.20.0",
+    "typescript": "^5.6.0"
+  },
+  "bin": {
+    "itmaster-sdk": "./dist/cli.js"
   }
 }

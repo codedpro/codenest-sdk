@@ -39,11 +39,39 @@ npm install @itmaster/sdk
 # straight from GitHub (builds on install):
 npm install github:codedpro/itmaster-sdk
 # from a packed tarball:
-npm install /path/to/itmaster-sdk-0.1.1.tgz
+npm install /path/to/itmaster-sdk-0.2.0.tgz
 # or a path dependency (sibling repos):
 npm install file:../itmaster/itmaster-sdk
 ```
 </details>
+
+## Quickstart — the `init` CLI
+
+Scaffold a site's integration by selecting features — it writes only **new** files
+(client + the routes you pick + middleware), adds the env keys, and prints the two
+snippets it won't overwrite (`layout.tsx` `<head>` and the blog pages). `src/app` is
+auto-detected; existing files are skipped unless `--force`.
+
+```bash
+npx @itmaster/sdk init                 # interactive (y/n per feature)
+# or non-interactive:
+npx @itmaster/sdk init \
+  --site <PUBLISH_SITE> --engine https://itmaster.uk \
+  --features robots,sitemap,rss,llms,indexnow,webhook --yes
+```
+
+```
+✚ wrote  lib/itmaster.ts
+✚ wrote  app/robots.txt/route.ts
+✚ wrote  app/api/indexnow-key/route.ts
+✚ wrote  middleware.ts
+✚ wrote  app/api/itmaster-webhook/route.ts
+✚ env keys ensured in .env.local + .env.example (fill PULL_KEY)
+```
+
+Then fill `PUBLISH_PULL_KEY`, wire the two printed snippets, and connect Google
+(see the end). The sections below are what the CLI generates — reference them to do
+it by hand or to understand each piece.
 
 ## Use
 
@@ -96,10 +124,20 @@ export const GET = createSitemapRoute(itmaster);
 ```
 
 ```ts
-// app/[key]/route.ts  (or a rewrite to /<key>.txt) — IndexNow ownership proof
+// app/api/indexnow-key/route.ts — IndexNow ownership proof (no secret, no round-trip)
 import { createIndexNowKeyRoute } from "@itmaster/sdk/next";
-import { itmaster } from "@/lib/itmaster";
-export const GET = createIndexNowKeyRoute(itmaster);
+// Pass the engine site id (single-tenant) or a resolver (multi-tenant, from host).
+// The SDK DERIVES the exact key the engine submits, so only your key resolves.
+export const GET = createIndexNowKeyRoute(process.env.PUBLISH_SITE ?? "your-site");
+
+// middleware.ts — rewrite the /{key}.txt request to the route
+import { NextRequest, NextResponse } from "next/server";
+export function middleware(req: NextRequest) {
+  if (/^\/[a-f0-9]{32}\.txt$/.test(req.nextUrl.pathname))
+    return NextResponse.rewrite(new URL("/api/indexnow-key", req.url));
+  return NextResponse.next();
+}
+export const config = { matcher: ["/((?!_next/|favicon.ico).*)"] };
 ```
 
 ```ts
@@ -113,26 +151,44 @@ export const POST = createWebhookRoute({
 });
 ```
 
-Head tags + metadata from the dashboard `site_config`:
+Head tags + metadata from the dashboard `site_config`. Emit **verification/OG/favicon
+via the Metadata API** (`applyMeta` in `generateMetadata`) and **analytics via
+`next/script`** — those are the only paths that actually render into `<head>` in the
+App Router:
 
 ```tsx
 // app/layout.tsx
-import { headTagsFromConfig, renderHeadHtml } from "@itmaster/sdk/next";
+import { applyMeta, headTagsFromConfig } from "@itmaster/sdk/next";
+import Script from "next/script";
 import { itmaster } from "@/lib/itmaster";
 
+const base: import("next").Metadata = { title: { default: "…", template: "%s · …" } };
+
+export async function generateMetadata() {
+  const config = await itmaster.config().catch(() => null);
+  return config ? applyMeta(base, config) : base;   // verification + OG + favicon
+}
+
 export default async function RootLayout({ children }) {
-  const config = await itmaster.config();
+  const config = await itmaster.config().catch(() => null);
+  const scripts = config ? headTagsFromConfig(config).scripts : [];   // GA4/GTM/Plausible/…
   return (
-    <html lang={config?.locale_lang ?? "en"}>
-      <head>
-        {config && <Fragment dangerouslySetInnerHTML={{ __html: renderHeadHtml(config) }} />}
-        {/* or render headTagsFromConfig(config) as <meta>/<link>/<Script> */}
-      </head>
-      <body>{children}</body>
+    <html>
+      <body>
+        {children}
+        {scripts.map((s, i) =>
+          s.src ? <Script key={i} src={s.src} strategy="afterInteractive" />
+                : <Script key={i} id={`a${i}`} strategy="afterInteractive"
+                          dangerouslySetInnerHTML={{ __html: s.innerHtml ?? "" }} />)}
+      </body>
     </html>
   );
 }
 ```
+
+> ⚠️ Do **not** render the tags via `<head><Fragment dangerouslySetInnerHTML></head>`
+> — a Fragment has no DOM node, so nothing reaches `<head>`. Use `applyMeta` +
+> `next/script` as above. (`renderHeadHtml` remains for non-App-Router/SSR string use.)
 
 ```ts
 // app/blog/[slug]/page.tsx — compose article metadata with the site config
@@ -174,8 +230,27 @@ export const GET = (req: Request, ctx: { params: Promise<{ slug: string }> }) =>
 | Import | Exports |
 | --- | --- |
 | `@itmaster/sdk` | `createClient`, types (`PublishedArticle`, `SiteConfig`, `Redirect`, …) |
-| `@itmaster/sdk/next` | `articleMetadata`, `articleJsonLd`, `applyMeta`, `renderHeadHtml`, `headTagsFromConfig`, `create*Route`, `createWebhookRoute`, `verifyWebhookSignature` |
+| `@itmaster/sdk/next` | `articleMetadata`, `articleJsonLd`, `applyMeta`, `headTagsFromConfig`, `renderHeadHtml`, `deriveIndexNowKey`, `createRobotsRoute`/`createSitemapRoute`/`createRssRoute`/`createLlmsRoute`/`createIndexNowKeyRoute`, `createWebhookRoute`, `verifyWebhookSignature` |
 | `@itmaster/sdk/provider` | `createProviderRoutes` (HMAC write-back contract) |
+| `npx @itmaster/sdk init` | CLI scaffolder (client + routes + middleware + env) |
+
+## Connect Google (zero-click)
+
+Once the head + IndexNow routes are live, one engine call verifies the site in Search
+Console, submits the sitemap, and turns on indexing:
+
+```bash
+curl -X POST "https://itmaster.uk/v1/publish/sites/<site>/connect/google/auto" \
+  -H "Authorization: Bearer <INTERNAL_TOKEN>"
+```
+
+| feature | needs |
+| --- | --- |
+| verification meta / analytics | `config()` working ⇒ **pull key set** |
+| IndexNow | the key route + middleware rewrite (**no pull key**) |
+| Google Indexing | site connected (service account + indexing scope) |
+| instant publish | webhook route + engine `push_url` / `push_secret` |
+| articles at all | engine generating content for the site (automation on) |
 
 ## Build
 
