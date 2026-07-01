@@ -6,7 +6,7 @@
 [![Next.js](https://img.shields.io/badge/Next.js-%E2%89%A514-black.svg)](https://nextjs.org/)
 [![ESM](https://img.shields.io/badge/module-ESM-f7df1e.svg)](https://nodejs.org/api/esm.html)
 
-**Official client SDK for the [IT Master](https://github.com/codedpro/itmaster-sdk) AI content engine.**
+**Official client SDK for [IT Master](https://itmaster.uk), the AI SEO content engine.**
 Pull SEO-optimized, AI-generated articles into any standalone **Next.js** site —
 with turnkey **sitemap, RSS, `llms.txt`, JSON-LD, IndexNow, metadata and webhook**
 helpers — instead of re-implementing the Pull API + rendering layer in every site.
@@ -257,6 +257,16 @@ curl -X POST "https://itmaster.uk/v1/publish/sites/<site>/connect/google/auto" \
 ```bash
 npm install && npm run build   # → dist/ (ESM + .d.ts)
 ```
+
+## Learn more
+
+- **How it works** — [how IT Master's cross-model content pipeline works](https://itmaster.uk/how-it-works): the discovery → research → generation → validation → publish flow behind every article this SDK pulls.
+- **Docs** — [full IT Master SDK documentation](https://itmaster.uk/docs): route recipes, the `init` CLI, and the complete Pull-API + `<head>` reference.
+- **Pricing** — [IT Master pricing and plans](https://itmaster.uk/pricing): pay-as-you-publish tiers for connecting your site to the engine.
+- **See the output** — [SEO-optimized articles on the IT Master blog](https://itmaster.uk/blog): live examples of what the engine generates and this SDK renders.
+- **Home** — [IT Master, the AI content engine](https://itmaster.uk): what it is, who it's for, and why rival models inspect every article.
+
+**This package everywhere:** [@itmaster/sdk on npm](https://www.npmjs.com/package/@itmaster/sdk) · [source on GitHub (codedpro/itmaster-sdk)](https://github.com/codedpro/itmaster-sdk) · [report an issue](https://github.com/codedpro/itmaster-sdk/issues)
 
 ## License
 
