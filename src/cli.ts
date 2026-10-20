@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 /**
- * @itmaster/sdk CLI — scaffold a site's engine integration.
+ * @code-nest/sdk CLI — scaffold a site's engine integration.
  *
- *   npx @itmaster/sdk init                     # interactive
- *   npx @itmaster/sdk init --site karjoo-ai --engine https://itmaster.uk \
+ *   npx @code-nest/sdk init                     # interactive
+ *   npx @code-nest/sdk init --site karjoo-ai --engine https://code-nest.dev \
  *       --features robots,sitemap,rss,llms,indexnow,webhook --yes
  *
  * Generates ONLY new files (client + the route handlers you pick) + a middleware
@@ -28,14 +28,14 @@ interface Ctx {
   site: string;
   engine: string;
   appDir: string; // "app" | "src/app"
-  libImport: string; // "@/lib/itmaster"
+  libImport: string; // "@/lib/codenest"
 }
 
 const ROUTE = (helper: string, importName: string) => (c: Ctx): Array<[string, string]> => [[
   `${c.appDir}/${helper}/route.ts`,
-  `import { ${importName} } from "@itmaster/sdk/next";\nimport { itmaster } from "${c.libImport}";\n\n` +
+  `import { ${importName} } from "@code-nest/sdk/next";\nimport { codenest } from "${c.libImport}";\n\n` +
     `// Engine-generated ${helper}. One line — the SDK proxies it from the Pull API.\n` +
-    `export const GET = ${importName}(itmaster);\n`,
+    `export const GET = ${importName}(codenest);\n`,
 ]];
 
 const FEATURES: Feature[] = [
@@ -49,7 +49,7 @@ const FEATURES: Feature[] = [
     files: (c) => [
       [
         `${c.appDir}/api/indexnow-key/route.ts`,
-        `import { createIndexNowKeyRoute } from "@itmaster/sdk/next";\n\n` +
+        `import { createIndexNowKeyRoute } from "@code-nest/sdk/next";\n\n` +
           `// SDK derives the exact key the engine submits (no secret, no round-trip).\n` +
           `// middleware.ts rewrites /{32-hex}.txt here.\n` +
           `export const GET = createIndexNowKeyRoute(process.env.PUBLISH_SITE ?? "${c.site}");\n`,
@@ -70,8 +70,8 @@ const FEATURES: Feature[] = [
     key: "webhook",
     label: "Push webhook (publish → live in seconds)",
     files: (c) => [[
-      `${c.appDir}/api/itmaster-webhook/route.ts`,
-      `import { createWebhookRoute } from "@itmaster/sdk/next";\nimport { revalidatePath } from "next/cache";\n\n` +
+      `${c.appDir}/api/codenest-webhook/route.ts`,
+      `import { createWebhookRoute } from "@code-nest/sdk/next";\nimport { revalidatePath } from "next/cache";\n\n` +
         `// The engine POSTs here on publish/update/delete (HMAC-verified).\n` +
         `export const POST = createWebhookRoute({\n` +
         `  secret: process.env.PUBLISH_PUSH_SECRET ?? "",\n` +
@@ -89,14 +89,14 @@ function srcMiddlewarePath(appDir: string): string {
 function clientFile(c: Ctx): [string, string] {
   const libDir = c.appDir.startsWith("src/") ? "src/lib" : "lib";
   return [
-    `${libDir}/itmaster.ts`,
-    `import "server-only";\nimport { createClient } from "@itmaster/sdk";\n\n` +
+    `${libDir}/codenest.ts`,
+    `import "server-only";\nimport { createClient } from "@code-nest/sdk";\n\n` +
       `/** Shared engine client — one place, used by every route + page. */\n` +
-      `export const itmaster = createClient({\n` +
-      `  baseUrl: process.env.ITMASTER_API_URL ?? "${c.engine}",\n` +
+      `export const codenest = createClient({\n` +
+      `  baseUrl: process.env.CODENEST_API_URL ?? "${c.engine}",\n` +
       `  site: process.env.PUBLISH_SITE ?? "${c.site}",\n` +
       `  pullKey: process.env.PUBLISH_PULL_KEY ?? "",\n` +
-      `  // cache: 300, // optional ISR revalidate seconds; default "no-store"\n});\n`,
+      `  cache: 300, // seconds of ISR. Never "no-store" — it un-statics the page.\n});\n`,
   ];
 }
 
@@ -104,14 +104,14 @@ function clientFile(c: Ctx): [string, string] {
 function headSnippet(c: Ctx): string {
   return (
     `// ${c.appDir}/layout.tsx — engine-managed <head> (verification, OG, favicon)\n` +
-    `import { applyMeta, headTagsFromConfig } from "@itmaster/sdk/next";\n` +
-    `import Script from "next/script";\nimport { itmaster } from "${c.libImport}";\n\n` +
+    `import { applyMeta, headTagsFromConfig } from "@code-nest/sdk/next";\n` +
+    `import Script from "next/script";\nimport { codenest } from "${c.libImport}";\n\n` +
     `const base: import("next").Metadata = { /* your defaults */ };\n\n` +
     `export async function generateMetadata() {\n` +
-    `  const config = await itmaster.config().catch(() => null);\n` +
+    `  const config = await codenest.config().catch(() => null);\n` +
     `  return config ? applyMeta(base, config) : base;\n}\n\n` +
     `// in RootLayout body: render analytics scripts\n` +
-    `const scripts = (await itmaster.config().catch(() => null));\n` +
+    `const scripts = (await codenest.config().catch(() => null));\n` +
     `// {headTagsFromConfig(config).scripts.map(s => <Script ... />)}\n`
   );
 }
@@ -119,12 +119,12 @@ function headSnippet(c: Ctx): string {
 function blogSnippet(c: Ctx): string {
   return (
     `// ${c.appDir}/blog/[slug]/page.tsx\n` +
-    `import { articleMetadata, articleJsonLd, applyMeta } from "@itmaster/sdk/next";\n` +
-    `import { itmaster } from "${c.libImport}";\n\n` +
+    `import { articleMetadata, articleJsonLd, applyMeta } from "@code-nest/sdk/next";\n` +
+    `import { codenest } from "${c.libImport}";\n\n` +
     `export async function generateMetadata({ params }) {\n` +
-    `  const a = await itmaster.getArticle((await params).slug);\n` +
+    `  const a = await codenest.getArticle((await params).slug);\n` +
     `  if (!a) return {};\n` +
-    `  const cfg = await itmaster.config().catch(() => null);\n` +
+    `  const cfg = await codenest.config().catch(() => null);\n` +
     `  const m = articleMetadata(a, { siteUrl: "${c.engine}" });\n` +
     `  return cfg ? applyMeta(m, cfg) : m;\n}\n`
   );
@@ -133,7 +133,7 @@ function blogSnippet(c: Ctx): string {
 // ── env ──────────────────────────────────────────────────────────────────────
 function envLines(c: Ctx, withWebhook: boolean): string[] {
   const lines = [
-    `ITMASTER_API_URL=${c.engine}`,
+    `CODENEST_API_URL=${c.engine}`,
     `PUBLISH_SITE=${c.site}`,
     `PUBLISH_PULL_KEY=`,
   ];
@@ -185,7 +185,7 @@ function ensureEnv(file: string, lines: string[]): void {
   });
   if (missing.length === 0) return;
   const body = (existing && !existing.endsWith("\n") ? existing + "\n" : existing) +
-    (existing ? "\n# @itmaster/sdk\n" : "# @itmaster/sdk\n") +
+    (existing ? "\n# @code-nest/sdk\n" : "# @code-nest/sdk\n") +
     missing.join("\n") + "\n";
   writeFileSync(file, body, "utf8");
 }
@@ -202,7 +202,7 @@ async function init(args: Record<string, string | boolean>): Promise<void> {
     const rl = createInterface({ input, output });
     if (!site) site = (await rl.question("Engine site id (PUBLISH_SITE): ")).trim();
     if (!engine)
-      engine = (await rl.question("Engine URL [https://itmaster.uk]: ")).trim() || "https://itmaster.uk";
+      engine = (await rl.question("Engine URL [https://code-nest.dev]: ")).trim() || "https://code-nest.dev";
     if (featureKeys.length === 0) {
       output.write("\nFeatures — answer y/n:\n");
       const picked: string[] = [];
@@ -219,15 +219,15 @@ async function init(args: Record<string, string | boolean>): Promise<void> {
     console.error("✖ a site id is required (--site <id>)");
     process.exit(1);
   }
-  engine = engine || "https://itmaster.uk";
+  engine = engine || "https://code-nest.dev";
   if (featureKeys.length === 0) featureKeys = FEATURES.map((f) => f.key);
 
   const appDir = detectAppDir();
   const libDir = appDir.startsWith("src/") ? "src/lib" : "lib";
-  const ctx: Ctx = { site, engine, appDir, libImport: "@/lib/itmaster" };
+  const ctx: Ctx = { site, engine, appDir, libImport: "@/lib/codenest" };
 
-  console.log(`\n@itmaster/sdk init — site "${site}" → ${engine}`);
-  console.log(`  app dir: ${appDir}  ·  client: ${libDir}/itmaster.ts\n`);
+  console.log(`\n@code-nest/sdk init — site "${site}" → ${engine}`);
+  console.log(`  app dir: ${appDir}  ·  client: ${libDir}/codenest.ts\n`);
 
   const results: Array<[string, string]> = [];
   const [clientPath, clientBody] = clientFile(ctx);
@@ -254,7 +254,7 @@ async function init(args: Record<string, string | boolean>): Promise<void> {
   console.log(
     `  curl -X POST "${engine}/v1/publish/sites/${site}/connect/google/auto" -H "Authorization: Bearer <INTERNAL_TOKEN>"\n`,
   );
-  console.log("Docs: https://github.com/codedpro/itmaster-sdk#readme\n");
+  console.log("Docs: https://code-nest.dev/docs/sdk\n");
 }
 
 async function main(): Promise<void> {
@@ -262,9 +262,9 @@ async function main(): Promise<void> {
   const args = parseArgs(rest);
   if (cmd === "init") return init(args);
   console.log(
-    "@itmaster/sdk\n\n" +
+    "@code-nest/sdk\n\n" +
       "Usage:\n" +
-      "  npx @itmaster/sdk init [--site <id>] [--engine <url>] [--features a,b,c] [--yes] [--force]\n\n" +
+      "  npx @code-nest/sdk init [--site <id>] [--engine <url>] [--features a,b,c] [--yes] [--force]\n\n" +
       "Features: " + FEATURES.map((f) => f.key).join(", ") + "\n",
   );
 }

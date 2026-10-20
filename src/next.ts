@@ -1,9 +1,17 @@
 /**
  * Next.js helpers (App Router). Framework-light: returns plain objects that are
  * structurally assignable to Next's `Metadata` / JSON-LD, so the SDK needs no
- * hard dependency on `next` to build. Import from "@itmaster/sdk/next".
+ * hard dependency on `next` to build. Import from "@code-nest/sdk/next".
  */
-import { heroOf, type PublishedArticle, type SiteConfig } from "./types.js";
+import {
+  heroOf,
+  type PublishedArticle,
+  type SeoPatch,
+  type SeoPatchResult,
+  type SeoPatchSource,
+  type SiteConfig,
+} from "./types.js";
+import { eventOf, signaturesOf, type HeadersLike } from "./signed.js";
 
 export interface MetadataLike {
   // Mirrors Next's `Metadata["title"]` (string OR a template object OR null) so a
@@ -129,6 +137,17 @@ export async function verifyWebhookSignature(
   return diff === 0;
 }
 
+/**
+ * Does any signature header this build reads (`names.ts`) carry a valid HMAC of
+ * `rawBody`? With one header name, exactly one `verifyWebhookSignature` call.
+ */
+async function verifiedRequest(rawBody: string, headers: HeadersLike, secret: string): Promise<boolean> {
+  for (const sig of signaturesOf(headers)) {
+    if (await verifyWebhookSignature(rawBody, sig, secret)) return true;
+  }
+  return false;
+}
+
 // ─────────────────────────────── Drop-in routes ────────────────────────────────
 // Each factory returns a plain async handler (typed loosely so the SDK keeps no
 // hard `next` dependency). Wire each as a one-line re-export in an App Router
@@ -187,7 +206,7 @@ export async function deriveIndexNowKey(siteId: string): Promise<string> {
 /**
  * GET handler serving a site's IndexNow key at `/<key>.txt` (rewrite `/{32-hex}.txt`
  * to it). Pass a static engine site id (single-tenant sites, e.g. the engine's own
- * `itmaster.uk`) OR a resolver that returns the id per request (multi-tenant
+ * `code-nest.dev`) OR a resolver that returns the id per request (multi-tenant
  * storefronts resolve it from the host). The key is DERIVED locally — no pull key,
  * no engine round-trip — so this works uniformly on EVERY consumer, including the
  * engine's own site. The body is exactly the key (IndexNow requires that).
@@ -231,8 +250,8 @@ export interface WebhookRouteOptions {
 
 /**
  * POST handler for the engine's push webhook. Reads the raw body, verifies the
- * `X-Thoth-Signature` HMAC, parses `{ event, article }`, dispatches to the right
- * callback, then triggers `revalidate`. → app/api/itmaster-webhook/route.ts
+ * `X-CodeNest-Signature` HMAC, parses `{ event, article }`, dispatches to the right
+ * callback, then triggers `revalidate`. → app/api/codenest-webhook/route.ts
  *
  * Returns 401 on bad signature, 400 on malformed body, 200 otherwise.
  */
@@ -240,8 +259,7 @@ export function createWebhookRoute(opts: WebhookRouteOptions) {
   const deleteEvents = new Set(["unpublish", "unpublished", "delete", "deleted", "takedown"]);
   return async (req: RequestLike): Promise<Response> => {
     const raw = await req.text();
-    const sig = req.headers.get("x-thoth-signature") ?? req.headers.get("X-Thoth-Signature") ?? "";
-    if (!(await verifyWebhookSignature(raw, sig, opts.secret))) {
+    if (!(await verifiedRequest(raw, req.headers, opts.secret))) {
       return new Response("Invalid signature", { status: 401 });
     }
     let body: { event?: string; article?: PublishedArticle };
@@ -432,4 +450,129 @@ export function applyMeta(base: MetadataLike, config: SiteConfig, pageTitle?: st
   }
 
   return out;
+}
+
+// ───────────────────────────── SEO patch route ─────────────────────────────
+// The write side. `createWebhookRoute` receives ARTICLES; this receives
+// OPTIMISATIONS for pages you already have — rewritten titles, meta descriptions
+// and JSON-LD from the engine's patcher, and prose rewrites from its
+// content-rewriter.
+//
+// The site keeps control. The engine proposes; your `applySeoPatch` decides what
+// (if anything) to persist, so CodeNest never needs credentials into your data.
+// Enable it in three steps:
+//
+//   1. app/api/codenest-seo-patch/route.ts
+//        import { createSeoPatchRoute } from "@code-nest/sdk/next";
+//        import { revalidatePath } from "next/cache";
+//        export const POST = createSeoPatchRoute({
+//          secret: process.env.CODENEST_PATCH_SECRET!,
+//          applySeoPatch: async (p) => {
+//            // p.fields holds the rewritten values: title, description,
+//            // ogTitle, ogDescription, customJsonLd.
+//            await db.saveMeta(p.path!, p.fields ?? {});
+//          },
+//          revalidate: (paths) => paths.forEach((p) => revalidatePath(p)),
+//        });
+//
+//   2. Set CODENEST_PATCH_SECRET to the same value as your push_secret.
+//   3. PUT /v1/seo/sites/<id>/modules  {"patcher": true}
+//
+// Signature scheme is identical to the publish webhook (hex HMAC-SHA256 of the
+// raw body in `X-CodeNest-Signature`), so both routes verify the same way.
+
+/** Handlers a site provides. Return true when applied, false/throw to report failure. */
+export interface SeoPatchRouteOptions {
+  /** Shared secret — the site's `push_secret` in the engine. */
+  secret: string;
+  /** Apply rewritten title/description/JSON-LD for a page. */
+  applySeoPatch?: (patch: SeoPatch, source: SeoPatchSource) => boolean | void | Promise<boolean | void>;
+  /**
+   * Apply a prose rewrite. Called only when the engine sends `content-patch`.
+   * `apply` is false when the engine wants it STAGED for human review rather
+   * than published — honour that, or you publish unreviewed copy.
+   */
+  applyContentPatch?: (
+    patch: SeoPatch,
+    source: SeoPatchSource,
+    apply: boolean,
+  ) => boolean | void | Promise<boolean | void>;
+  /** Bust caches for the affected paths — pass a closure over `revalidatePath`. */
+  revalidate?: (paths: string[], tags: string[]) => void | Promise<void>;
+}
+
+/**
+ * POST handler for the engine's SEO patch channel.
+ * → app/api/codenest-seo-patch/route.ts
+ *
+ * Verifies the HMAC, dispatches each patch to your handler, and answers with the
+ * per-patch `results` the engine expects. A handler that throws marks only ITS
+ * patch failed — one bad patch never fails the batch.
+ *
+ * 401 on bad signature, 400 on malformed body, 200 otherwise (inspect `results`).
+ */
+export function createSeoPatchRoute(opts: SeoPatchRouteOptions) {
+  return async (req: RequestLike): Promise<Response> => {
+    const raw = await req.text();
+    if (!(await verifiedRequest(raw, req.headers, opts.secret))) {
+      return new Response("Invalid signature", { status: 401 });
+    }
+    const event = eventOf(req.headers, "seo-patch").toLowerCase();
+
+    let body: { source?: SeoPatchSource; patches?: SeoPatch[]; apply?: boolean; paths?: string[]; tags?: string[] };
+    try {
+      body = JSON.parse(raw);
+    } catch {
+      return new Response("Bad JSON", { status: 400 });
+    }
+
+    // A bare revalidation carries no patches — just bust the caches and return.
+    if (event === "revalidate") {
+      const paths = body.paths ?? [];
+      await opts.revalidate?.(paths, body.tags ?? []);
+      return Response.json({ ok: true, revalidated: paths });
+    }
+
+    const source = body.source ?? {};
+    const patches = body.patches ?? [];
+    if (!Array.isArray(patches)) return new Response("patches must be an array", { status: 400 });
+
+    const results: SeoPatchResult[] = [];
+    const touched: string[] = [];
+
+    for (const patch of patches) {
+      // Products carry no path, so fall back through every addressing form the
+      // engine uses; a blank key makes a failure impossible to attribute.
+      const key = patch.key ?? patch.path ?? patch.target?.path ?? patch.product_id ?? patch.sku ?? "";
+      try {
+        const handler = event === "content-patch" ? opts.applyContentPatch : opts.applySeoPatch;
+        if (!handler) {
+          results.push({ ok: false, kind: patch.kind, key, error: `no handler for ${event}` });
+          continue;
+        }
+        const outcome =
+          event === "content-patch"
+            ? await opts.applyContentPatch!(patch, source, body.apply === true)
+            : await opts.applySeoPatch!(patch, source);
+        // `undefined` means "handled" — only an explicit false is a refusal, so a
+        // handler that just persists and returns nothing still counts as applied.
+        const ok = outcome !== false;
+        results.push({ ok, kind: patch.kind, key, ...(ok ? {} : { error: "handler declined" }) });
+        if (ok) {
+          const p = patch.path ?? patch.target?.path;
+          if (p) touched.push(p);
+        }
+      } catch (err) {
+        results.push({
+          ok: false,
+          kind: patch.kind,
+          key,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
+    if (touched.length) await opts.revalidate?.(touched, []);
+    return Response.json({ ok: results.every((r) => r.ok), results, revalidated: touched });
+  };
 }

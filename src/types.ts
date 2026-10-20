@@ -1,5 +1,5 @@
 /**
- * Canonical IT Master publish payloads — the read-side contract a consumer site
+ * Canonical CodeNest publish payloads — the read-side contract a consumer site
  * renders. Mirrors the engine's Article Publish Payload v1.1. Kept dependency-free
  * so any TS project (Next.js or not) can import them.
  */
@@ -118,7 +118,7 @@ export interface SiteConfig {
   meta: {
     /** Title template, must contain %s. */
     title_template: string;
-    /** e.g. " | CCTV Line". */
+    /** e.g. " | Example Store". */
     title_suffix: string;
     default_og_image: string;
     twitter_handle: string;
@@ -190,4 +190,84 @@ export function heroOf(a: PublishedArticle): HeroImage | null {
   if (h && typeof h === "object" && (h as HeroImage).url) return h as HeroImage;
   const first = a.images?.[0];
   return first?.url ? first : null;
+}
+
+// ─────────────────────── SEO patch (write side) ────────────────────────────
+// The engine can push OPTIMISATIONS back to a site, not just articles: rewritten
+// titles/meta descriptions/JSON-LD from the patcher, and prose rewrites from the
+// content-rewriter. The site stays in control — it receives a proposal and
+// decides how to apply it, so CodeNest never needs write access to your data.
+
+/** What a patch is addressed to. `path` is the on-site URL path. */
+export interface SeoPatchTarget {
+  /** "page" (meta/JSON-LD for a URL) or "article"/"landing" for prose. */
+  kind?: string;
+  /** On-site path the patch applies to, e.g. "/blog/my-post". */
+  path?: string;
+  /** Dot-path of a prose section within the page, when the engine knows one. */
+  section?: string;
+}
+
+/**
+ * The rewritten values, for a `seo-patch`. These live under `fields` — NOT at the
+ * top of the patch — so a patch stays addressing (`kind`/`path`/`product_id`)
+ * plus payload.
+ */
+export interface SeoPatchFields {
+  /** Rewritten <title>. */
+  title?: string;
+  /** Rewritten meta description. */
+  description?: string;
+  ogTitle?: string;
+  ogDescription?: string;
+  /** JSON-LD for a normal page, grounded in the page's real content. */
+  customJsonLd?: unknown;
+  /** JSON-LD for a product page. */
+  jsonLd?: unknown;
+  /** Rewritten image alt text, keyed by image URL. */
+  imageAlts?: Record<string, string>;
+  [key: string]: unknown;
+}
+
+/**
+ * One proposed change.
+ *
+ * A `seo-patch` is addressed by `path` (kind "page") or by `product_id`/`sku`
+ * (kind "product"), and carries its payload in `fields`. A `content-patch` is
+ * addressed by `target` and carries `text`.
+ */
+export interface SeoPatch {
+  /** "page" | "product" for seo-patch; "landing" | "article" for content-patch. */
+  kind?: string;
+  key?: string;
+  /** On-site path — present for kind "page". */
+  path?: string;
+  /** Product identity — present for kind "product" instead of `path`. */
+  product_id?: string;
+  sku?: string;
+  /** Rewritten metadata (seo-patch). */
+  fields?: SeoPatchFields;
+  /** Structured address for a prose rewrite (content-patch). */
+  target?: SeoPatchTarget;
+  /** Rewritten prose (content-patch only). */
+  text?: string;
+  [key: string]: unknown;
+}
+
+/** Attribution for an inbound patch batch — which job/tier/model produced it. */
+export interface SeoPatchSource {
+  engine?: string;
+  job_id?: string;
+  tier?: string;
+  model?: string;
+  mode?: string;
+  [key: string]: unknown;
+}
+
+/** Per-patch outcome. `ok: false` is normal and expected — partial success is the contract. */
+export interface SeoPatchResult {
+  ok: boolean;
+  kind?: string;
+  key?: string;
+  error?: string;
 }

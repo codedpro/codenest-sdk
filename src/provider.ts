@@ -1,6 +1,6 @@
 /**
  * Write-back provider contract (CMS-style sites the engine edits directly).
- * Import from "@itmaster/sdk/provider".
+ * Import from "@code-nest/sdk/provider".
  *
  * The engine calls a site's provider endpoints to read a page inventory and push
  * SEO/content patches back into the site's CMS. This module is a SCAFFOLD: it
@@ -14,11 +14,12 @@
  *   POST /api/external/{slug}/content     -> apply a ContentPatch
  *   POST /api/external/{slug}/revalidate  -> purge caches for the page
  *
- * Every POST is HMAC-verified (`X-Thoth-Signature`, same scheme as the push
+ * Every POST is HMAC-verified (`X-CodeNest-Signature`, same scheme as the push
  * webhook) before any handler runs. Framework-light: handlers return the Web
  * `Response`, so the SDK keeps no hard `next` dependency.
  */
 import { verifyWebhookSignature } from "./next.js";
+import { signaturesOf } from "./signed.js";
 import type { ContentPatch, SeoPatch, SnapshotPage } from "./types.js";
 
 export type { ContentBlock, ContentPatch, SeoPatch, SnapshotPage } from "./types.js";
@@ -91,9 +92,12 @@ export function createProviderRoutes(opts: ProviderRouteOptions): ProviderRoutes
   /** Read raw body, verify signature, parse JSON. Returns the parsed body or a Response to short-circuit. */
   async function verified<T>(req: RequestLike): Promise<{ body: T } | { error: Response }> {
     const raw = await req.text();
-    const sig =
-      req.headers.get("x-thoth-signature") ?? req.headers.get("X-Thoth-Signature") ?? "";
-    if (!(await verifyWebhookSignature(raw, sig, secret))) {
+    // Any signature header this build reads (names.ts) may carry the HMAC.
+    let ok = false;
+    for (const sig of signaturesOf(req.headers)) {
+      if ((ok = await verifyWebhookSignature(raw, sig, secret))) break;
+    }
+    if (!ok) {
       return { error: new Response("Invalid signature", { status: 401 }) };
     }
     try {

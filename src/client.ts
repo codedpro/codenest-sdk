@@ -1,12 +1,12 @@
 import type { PublishedArticle, Redirect, SiteConfig } from "./types.js";
 
 /**
- * Read-only client for the IT Master Pull API (`/v1/publish/{site}/…`). A site is
+ * Read-only client for the CodeNest Pull API (`/v1/publish/{site}/…`). A site is
  * just a tenant: it pulls finished articles with its per-site bearer key. Server-
  * side only — never ship the pull key to the browser.
  */
-export interface ItmasterClientConfig {
-  /** Engine base URL, e.g. https://itmaster.uk or http://127.0.0.1:8088 */
+export interface CodeNestClientConfig {
+  /** Engine base URL, e.g. https://code-nest.dev or http://127.0.0.1:8088 */
   baseUrl: string;
   /** Publishing site slug (the TargetSite id registered in the engine). */
   site: string;
@@ -15,8 +15,18 @@ export interface ItmasterClientConfig {
   /** Override fetch (tests / custom runtimes). Defaults to global fetch. */
   fetchImpl?: typeof fetch;
   /**
-   * Caching for the underlying fetch. Default "no-store" (always fresh). Pass a
-   * number to use Next.js ISR (`next: { revalidate }`) instead.
+   * Caching for the underlying fetch, in seconds of `next: { revalidate }`.
+   *
+   * Defaults to 300. It deliberately does NOT default to `"no-store"`: a
+   * no-store fetch opts the CALLING ROUTE out of static rendering, so any page
+   * that reads the feed — a blog index, a sitemap, a root layout reading
+   * `config()` — flips from static to dynamic at runtime. Next 16 treats that
+   * as an error: pages with a prerender on disk quietly serve stale build-time
+   * HTML, and pages without one return a hard 500. This engine's own marketing
+   * site shipped exactly that bug and served 500s on /blog.
+   *
+   * Pass `"no-store"` explicitly if a route genuinely must not cache. Takedowns
+   * do not need it — the push webhook calls `revalidatePath`.
    */
   cache?: RequestCache | number;
 }
@@ -36,7 +46,7 @@ export interface ArticlePage {
   next_since: string | null;
 }
 
-export interface ItmasterClient {
+export interface CodeNestClient {
   /** Whether a pull key is configured (else every call returns empty/null). */
   readonly configured: boolean;
   /** Live articles, newest first; tombstones filtered out unless requested. */
@@ -67,16 +77,20 @@ export interface ItmasterClient {
   rawText(path: string): Promise<string | null>;
 }
 
+/** Seconds. See `CodeNestClientConfig.cache` for why this is not "no-store". */
+const DEFAULT_REVALIDATE = 300;
+
 function fetchInit(cache: RequestCache | number | undefined, key: string): RequestInit {
   const init: RequestInit & { next?: { revalidate: number } } = {
     headers: { Authorization: `Bearer ${key}` },
   };
   if (typeof cache === "number") init.next = { revalidate: cache };
-  else init.cache = cache ?? "no-store";
+  else if (cache !== undefined) init.cache = cache;
+  else init.next = { revalidate: DEFAULT_REVALIDATE };
   return init;
 }
 
-export function createClient(config: ItmasterClientConfig): ItmasterClient {
+export function createClient(config: CodeNestClientConfig): CodeNestClient {
   const base = config.baseUrl.replace(/\/$/, "");
   const site = config.site;
   const key = config.pullKey ?? "";
